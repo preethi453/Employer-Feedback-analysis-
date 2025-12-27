@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2 style="margin-bottom: 10px;">Sentiment Analysis Dashboard</h2>
+  <p style="margin-top: 0;">Paste employee feedback below, one comment per line. The model will analyze overall sentiment and show a dashboard.</p>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% endif %}
+
+  <!-- Input card -->
+  <div style="margin-bottom: 20px; border: 1px solid #ddd; border-radius: 8px; padding: 15px;">
+    <form method="POST">
+      <label for="feedback_text"><strong>Employee Feedback (one per line):</strong></label><br>
+      <textarea id="feedback_text" name="feedback_text" rows="5"
+                style="width: 100%; margin-top: 5px; padding: 8px;">{{ request.form.feedback_text or "" }}</textarea>
+      <br><br>
+      <button type="submit" class="btn">Analyze</button>
+    </form>
+  </div>
+
+  {% if sentiment_stats %}
+    <!-- Top cards row: Positive / Neutral / Negative / Total -->
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">
+      <div style="flex: 1; min-width: 180px; background: #e8f5e9; border-radius: 8px; padding: 10px; text-align: center;">
+        <div style="font-size: 40px;">😊</div>
+        <div style="font-size: 20px; font-weight: bold;">{{ sentiment_stats.positive_pct }}%</div>
+        <div style="font-size: 13px; color: #555;">Positive</div>
+      </div>
+      <div style="flex: 1; min-width: 180px; background: #fff8e1; border-radius: 8px; padding: 10px; text-align: center;">
+        <div style="font-size: 40px;">😐</div>
+        <div style="font-size: 20px; font-weight: bold;">{{ sentiment_stats.neutral_pct }}%</div>
+        <div style="font-size: 13px; color: #555;">Neutral</div>
+      </div>
+      <div style="flex: 1; min-width: 180px; background: #ffebee; border-radius: 8px; padding: 10px; text-align: center;">
+        <div style="font-size: 40px;">☹️</div>
+        <div style="font-size: 20px; font-weight: bold;">{{ sentiment_stats.negative_pct }}%</div>
+        <div style="font-size: 13px; color: #555;">Negative</div>
+      </div>
+      <div style="flex: 1; min-width: 180px; background: #e3f2fd; border-radius: 8px; padding: 10px; text-align: center;">
+        <div style="font-size: 26px; font-weight: bold;">{{ sentiment_stats.total }}</div>
+        <div style="font-size: 13px; color: #555;">Total Feedbacks</div>
+      </div>
+    </div>
+
+    <!-- Charts row -->
+    <div style="display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px;">
+      <!-- Sentiment distribution bar chart -->
+      <div style="flex: 1; min-width: 280px; border: 1px solid #ddd; border-radius: 8px; padding: 10px;">
+        <h3 style="font-size: 16px; margin-top: 0;">Category Sentiment Analysis</h3>
+        <canvas id="sentimentBarChart"></canvas>
+      </div>
+
+      <!-- Satisfaction style chart (same data, different view) -->
+      <div style="flex: 1; min-width: 280px; border: 1px solid #ddd; border-radius: 8px; padding: 10px;">
+        <h3 style="font-size: 16px; margin-top: 0;">Satisfaction Rate</h3>
+        <canvas id="satisfactionChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Word cloud + table row -->
+    <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+      <!-- Word cloud -->
+      <div style="flex: 1; min-width: 280px; border: 1px solid #ddd; border-radius: 8px; padding: 10px;">
+        <h3 style="font-size: 16px; margin-top: 0;">What Are People Talking About?</h3>
+        <div style="border: 1px dashed #ccc; border-radius: 8px; padding: 10px; min-height: 120px;">
+          {% if keywords %}
+            {% set max_count = keywords[0][1] %}
+            {% for word, count in keywords %}
+              {% set size = (12 + 18 * (count / max_count))|round(2) %}
+              <span class="wc-word" data-size="{{ size }}" data-word="{{ word }}" style="margin:4px;display:inline-block;color:#555;">
+                {{ word }}
+              </span>
+            {% endfor %}
+            <script>
+              document.addEventListener('DOMContentLoaded', function () {
+                document.querySelectorAll('.wc-word').forEach(function(el){
+                  const size = el.getAttribute('data-size') || '12';
+                  el.style.fontSize = size + 'px';
+                });
+              });
+            </script>
+          {% else %}
+            <p style="color: #777;">Run the analysis to see common words.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Detailed table -->
+      <div style="flex: 1.5; min-width: 320px; border: 1px solid #ddd; border-radius: 8px; padding: 10px;">
+        <h3 style="font-size: 16px; margin-top: 0;">Detailed Sentiment Table</h3>
+        <div style="max-height: 260px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Feedback</th>
+                <th>Polarity</th>
+                <th>Sentiment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in analysis_result %}
+                <tr>
+                  <td>{{ loop.index }}</td>
+                  <td>{{ row.original }}</td>
+                  <td>{{ row.polarity }}</td>
+                  <td>
+                    {% if row.sentiment == "Positive" %}
+                      <span class="badge badge-positive">Positive</span>
+                    {% elif row.sentiment == "Negative" %}
+                      <span class="badge badge-negative">Negative</span>
+                    {% else %}
+                      <span class="badge badge-neutral">{{ row.sentiment }}</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart.js script -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <div id="sentiment-data" data-sentiment='{{ sentiment_stats | tojson | safe }}' style="display:none;"></div>
+    <script>
+      (function () {
+        const container = document.getElementById('sentiment-data');
+        const sentimentStats = container ? JSON.parse(container.getAttribute('data-sentiment') || '{}') : {};
+        const posPct = sentimentStats.positive_pct || 0;
+        const neuPct = sentimentStats.neutral_pct || 0;
+        const negPct = sentimentStats.negative_pct || 0;
+        const posCount = sentimentStats.positive_count || 0;
+        const neuCount = sentimentStats.neutral_count || 0;
+        const negCount = sentimentStats.negative_count || 0;
+
+        // Bar chart for sentiment counts
+        const ctxBar = document.getElementById('sentimentBarChart').getContext('2d');
+        new Chart(ctxBar, {
+          type: 'bar',
+          data: {
+            labels: ['Positive', 'Neutral', 'Negative'],
+            datasets: [{
+              label: 'Number of Feedback',
+              data: [posCount, neuCount, negCount]
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+              y: { beginAtZero: true, title: { display: true, text: 'Count' } }
+            }
+          }
+        });
+
+        // "Satisfaction rate" chart (using percentages)
+        const ctxSat = document.getElementById('satisfactionChart').getContext('2d');
+        new Chart(ctxSat, {
+          type: 'bar',
+          data: {
+            labels: ['Satisfaction'],
+            datasets: [
+              { label: 'Positive %', data: [posPct], stack: 'stack1' },
+              { label: 'Neutral %', data: [neuPct], stack: 'stack1' },
+              { label: 'Negative %', data: [negPct], stack: 'stack1' }
+            ]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { position: 'bottom' } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                max: 100,
+                title: { display: true, text: 'Percentage' }
+              }
+            }
+          }
+        });
+      })();
+    </script>
+  {% endif %}
+{% endblock %}
